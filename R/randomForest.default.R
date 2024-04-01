@@ -14,11 +14,14 @@ mylevels <- function(x) if (is.factor(x)) levels(x) else 0
              proximity, oob.prox=proximity,
              norm.votes=TRUE, do.trace=FALSE,
              keep.forest=!is.null(y) && is.null(xtest), corr.bias=FALSE,
-             keep.inbag=FALSE, ...) {
+             keep.inbag=FALSE, attrEval = as.integer(1), ...) {
     addclass <- is.null(y)
     classRF <- addclass || is.factor(y)
+    if (any(!(attrEval %in% c(1,2,3,4,5)))) {
+      stop("Attribute Evaluation Method not avaiable. For more Information call InfoAttr().")
+    }
     if (!classRF && length(unique(y)) <= 5) {
-        warning("The response has five or fewer unique values.  Are you sure you want to do regression?")
+      warning("The response has five or fewer unique values.  Are you sure you want to do regression?")
     }
     if (classRF && !addclass && length(unique(y)) < 2)
         stop("Need at least two classes to do classification.")
@@ -38,6 +41,8 @@ mylevels <- function(x) if (is.factor(x)) levels(x) else 0
         ntest <- nrow(xtest)
         xts.row.names <- rownames(xtest)
     }
+    
+    num_attrEval <- length(attrEval)
 
     ## Make sure mtry is in reasonable range.
     if (mtry < 1 || mtry > p)
@@ -222,7 +227,6 @@ mylevels <- function(x) if (is.factor(x)) levels(x) else 0
     } else {
         weights <- rep(1.0, n)
     }
-    
     if (classRF) {
         cwt <- classwt
         threshold <- cutoff
@@ -275,6 +279,8 @@ mylevels <- function(x) if (is.factor(x)) levels(x) else 0
                     countts = double(nclass * ntest),
                     outclts = as.integer(numeric(ntest)),
                     labelts = as.integer(labelts),
+                    attrEval = as.integer(attrEval),
+                    num_attrEval = as.integer(num_attrEval),
                     proxts = proxts,
                     errts = error.test,
                     inbag = if (keep.inbag)

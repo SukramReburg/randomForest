@@ -21,7 +21,8 @@ c     SUBROUTINE BUILDTREE
      1     nclass, treemap, bestvar, bestsplit, bestsplitnext, tgini,
      1     nodestatus,nodepop, nodestart, classpop, tclasspop,
      1     tclasscat,ta,nrnodes, idmove, ndsize, ncase, mtry, iv,
-     1     nodeclass, ndbigtree, win, wr, wl, mred, nuse, mind)
+     1     nodeclass, ndbigtree, win, wr, wl, mred, nuse, mind,  
+     1     mevaluation)
 
 c     Buildtree consists of repeated calls to two subroutines, Findbestsplit
 c     and Movedata.  Findbestsplit does just that--it finds the best split of
@@ -45,7 +46,7 @@ c     main program.
      1     nodepop(nrnodes), nodestart(nrnodes),
      1     idmove(nsample),
      1     ncase(nsample), b(mdim,nsample),
-     1     iv(mred), nodeclass(nrnodes), mind(mred)
+     1     iv(mred), nodeclass(nrnodes), mind(mred), mevaluation
 
       double precision tclasspop(nclass), classpop(nclass, nrnodes),
      1     tclasscat(nclass, 53), win(nsample), wr(nclass),
@@ -54,6 +55,7 @@ c     main program.
       integer msplit, ntie
 
       msplit = 0
+
       call zerv(nodestatus,nrnodes)
       call zerv(nodestart,nrnodes)
       call zerv(nodepop,nrnodes)
@@ -82,7 +84,8 @@ c     initialize for next call to findbestsplit
 
          call findbestsplit(a,b,cl,mdim,nsample,nclass,cat,maxcat,
      1        ndstart, ndend,tclasspop,tclasscat,msplit, decsplit,
-     1        best,ncase, jstat,mtry,win,wr,wl,mred,mind)
+     1        best,ncase, jstat,mtry,win,wr,wl,mred,mind,
+     1        mevaluation)
 c         call intpr("jstat", 5, jstat, 1)
 c         call intpr("msplit", 6, msplit, 1)
 c     If the node is terminal, move on.  Otherwise, split.
@@ -198,7 +201,7 @@ c     the coding into an integer of the categories going left.
       subroutine findbestsplit(a, b, cl, mdim, nsample, nclass, cat,
      1     maxcat, ndstart, ndend, tclasspop, tclasscat, msplit,
      2     decsplit, best, ncase, jstat, mtry, win, wr, wl,
-     3     mred, mind)
+     3     mred, mind, mevaluation)
       implicit double precision(a-h,o-z)
       integer a(mdim,nsample), cl(nsample), cat(mdim),
      1     ncase(nsample), b(mdim,nsample), nn, j
@@ -207,6 +210,7 @@ c     the coding into an integer of the categories going left.
       integer mind(mred), ncmax, ncsplit,nhit, ntie
       ncmax = 10
       ncsplit = 512
+
 c     compute initial values of numerator and denominator of Gini
       pno = 0.0
       pdo = 0.0
@@ -234,48 +238,94 @@ c     sampling mtry variables w/o replacement.
          lcat = cat(mvar)
          if (lcat .eq. 1) then
 c     Split on a numerical predictor.
-            rrn = pno
-            rrd = pdo
-            rln = 0
-            rld = 0
-            call zervr(wl, nclass)
-            do j = 1, nclass
-               wr(j) = tclasspop(j)
-            end do
-            ntie = 1
-            do nsp = ndstart, ndend-1
-               nc = a(mvar, nsp)
-               u = win(nc)
-               k = cl(nc)
-               rln = rln + u * (2 * wl(k) + u)
-               rrn = rrn + u * (-2 * wr(k) + u)
-               rld = rld + u
-               rrd = rrd - u
-               wl(k) = wl(k) + u
-               wr(k) = wr(k) - u
-               if (b(mvar, nc) .lt. b(mvar, a(mvar, nsp + 1))) then
-c     If neither nodes is empty, check the split.
-                  if (dmin1(rrd, rld) .gt. 1.0e-5) then
-                     crit = (rln / rld) + (rrn / rrd)
-                     if (crit .gt. critmax) then
-                        best = dble(nsp)
-                        critmax = crit
-                        msplit = mvar
-                        ntie = 1
-                     end if
-c     Break ties at random:
-                     if (crit .eq. critmax) then
-                        ntie = ntie + 1
-                        call rrand(xrand)
-                        if (xrand .lt. 1.0 / ntie) then
-                           best = dble(nsp)
-                           critmax = crit
-                           msplit = mvar
-                        end if
-                     end if
-                  end if
-               end if
-            end do
+            if(mevaluation .eq. 1) then
+              rrn = pno
+              rrd = pdo
+              rln = 0
+              rld = 0
+              call zervr(wl, nclass)
+              do j = 1, nclass
+                 wr(j) = tclasspop(j)
+              end do
+              ntie = 1
+              do nsp = ndstart, ndend-1
+                 nc = a(mvar, nsp)
+                 u = win(nc)
+                 k = cl(nc)
+                 rln = rln + u * (2 * wl(k) + u)
+                 rrn = rrn + u * (-2 * wr(k) + u)
+                 rld = rld + u
+                 rrd = rrd - u
+                 wl(k) = wl(k) + u
+                 wr(k) = wr(k) - u
+                 if (b(mvar, nc) .lt. b(mvar, a(mvar, nsp + 1))) then
+c     If nei  her nodes is empty, check the split.
+                    if (dmin1(rrd, rld) .gt. 1.0e-5) then
+                       crit = (rln / rld) + (rrn / rrd)
+                       if (crit .gt. critmax) then
+                          best = dble(nsp)
+                          critmax = crit
+                          msplit = mvar
+                          ntie = 1
+                       end if
+c     Break   ties at random:
+                       if (crit .eq. critmax) then
+                          ntie = ntie + 1
+                          call rrand(xrand)
+                          if (xrand .lt. 1.0 / ntie) then
+                             best = dble(nsp)
+                             critmax = crit
+                             msplit = mvar
+                          end if
+                       end if
+                    end if
+                 end if
+              end do
+            end if
+            if(mevaluation .eq. 2) then
+              rrn = pno
+              rrd = pdo
+              rln = 0
+              rld = 0
+              call zervr(wl, nclass)
+              do j = 1, nclass
+                 wr(j) = tclasspop(j)
+              end do
+              ntie = 1
+              do nsp = ndstart, ndend-1
+                 nc = a(mvar, nsp)
+                 u = win(nc)
+                 k = cl(nc)
+                 rln = rln + u * (2 * wl(k) + u)
+                 rrn = rrn + u * (-2 * wr(k) + u)
+                 rld = rld + u
+                 rrd = rrd - u
+                 wl(k) = wl(k) + u
+                 wr(k) = wr(k) - u
+                 if (b(mvar, nc) .lt. b(mvar, a(mvar, nsp + 1))) then
+c     If nei  her nodes is empty, check the split.
+                    if (dmin1(rrd, rld) .gt. 1.0e-5) then
+                       crit = (rln / rld) + (rrn / rrd)
+                       if (crit .gt. critmax) then
+                          best = dble(nsp)
+                          critmax = crit
+                          msplit = mvar
+                          ntie = 1
+                       end if
+c     Break   ties at random:
+                       if (crit .eq. critmax) then
+                          ntie = ntie + 1
+                          call rrand(xrand)
+                          if (xrand .lt. 1.0 / ntie) then
+                             best = dble(nsp)
+                             critmax = crit
+                             msplit = mvar
+                          end if
+                       end if
+                    end if
+                 end if
+              end do
+            end if
          else
 c     Split on a categorical predictor.  Compute the decrease in impurity.
             call zermr(tclasscat, nclass, 53)

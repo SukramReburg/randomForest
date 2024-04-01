@@ -43,7 +43,7 @@ void classRF(double *x, int *dimx, int *cl, int *ncl, int *cat, int *maxcat,
              int *ndbigtree, int *nodestatus, int *bestvar, int *treemap,
              int *nodeclass, double *xbestsplit, double *errtr,
              int *testdat, double *xts, int *clts, int *nts, double *countts,
-             int *outclts, int *labelts, double *proxts, double *errts,
+             int *outclts, int *labelts, int *attrEval, int *num_attrEval, double *proxts, double *errts,
              int *inbag) {
   /******************************************************************
    *  C wrapper for random forests:  get input from R and drive
@@ -89,12 +89,13 @@ void classRF(double *x, int *dimx, int *cl, int *ncl, int *cat, int *maxcat,
   keepInbag, nstrata;
   int jb, j, n, m, k, idxByNnode, idxByNsample, imp, localImp, iprox,
   oobprox, keepf, replace, stratify, trace, *nright,
-  *nrightimp, *nout, *nclts, Ntree;
+  *nrightimp, *nout, *nclts, Ntree, lae, mevaluation;
 
   int *out, *nodepop, *jin, *nodex,
   *nodexts, *nodestart, *ta, *ncase, *jerr, *varUsed,
   *jtr, *classFreq, *idmove, *jvr,
   *at, *a, *b, *mind, *nind, *jts, *oobpair, *sampledIndices;
+  // , *attrEvalvec;
   int **strata_idx, *strata_size, last, ktmp, nEmpty, ntry;
   double **stratified_weight_subsets;
   double av=0.0, delta=0.0;
@@ -117,6 +118,7 @@ void classRF(double *x, int *dimx, int *cl, int *ncl, int *cat, int *maxcat,
   nclass   = (*ncl==1) ? 2 : *ncl;
   ndsize   = *nodesize;
   Ntree    = *ntree;
+  lae      = *num_attrEval;
   mtry     = *nvar;
   ntest    = *nts;
   nsample = addClass ? (nsample0 + nsample0) : nsample0;
@@ -138,6 +140,7 @@ void classRF(double *x, int *dimx, int *cl, int *ncl, int *cat, int *maxcat,
   bestsplit =     (double *) S_alloc(*nrnodes, sizeof(double));
 
   out =           (int *) S_alloc(nsample, sizeof(int));
+  // attrEvalvec =   (int *) S_alloc(Ntree, sizeof(int));
   nodepop =       (int *) S_alloc(*nrnodes, sizeof(int));
   nodestart =     (int *) S_alloc(*nrnodes, sizeof(int));
   jin =           (int *) S_alloc(nsample, sizeof(int));
@@ -315,7 +318,8 @@ void classRF(double *x, int *dimx, int *cl, int *ncl, int *cat, int *maxcat,
       /* Copy the original a matrix back. */
       memcpy(a, at, sizeof(int) * mdim * nsample);
       modA(a, &nuse, nsample, mdim, cat, *maxcat, ncase, jin);
-
+      mevaluation = attrEval[jb % lae];
+      // Rprintf("before F77_CALL(buildtree): %d\n ", mevaluation);
       F77_CALL(buildtree)(a, b, cl, cat, maxcat, &mdim, &nsample,
                &nclass,
                treemap + 2*idxByNnode, bestvar + idxByNnode,
@@ -325,10 +329,11 @@ void classRF(double *x, int *dimx, int *cl, int *ncl, int *cat, int *maxcat,
                ta, nrnodes, idmove, &ndsize, ncase,
                &mtry, varUsed, nodeclass + idxByNnode,
                ndbigtree + jb, win, wr, wl, &mdim,
-               &nuse, mind);
+               &nuse, mind, &mevaluation);
       /* if the "tree" has only the root node, start over */
     } while (ndbigtree[jb] == 1);
-
+    Rprintf("Value of mevaluation: %d\n", mevaluation);
+    // Rprintf("Fortran call successfull!");
     Xtranslate(x, mdim, *nrnodes, nsample, bestvar + idxByNnode,
                bestsplit, bestsplitnext, xbestsplit + idxByNnode,
                nodestatus + idxByNnode, cat, ndbigtree[jb]);
