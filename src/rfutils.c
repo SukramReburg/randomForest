@@ -13,6 +13,8 @@
 *******************************************************************/
 #include <R.h>
 #include "rf.h"
+#include <math.h>
+#include <float.h> // for INFINITY
 
 
 void zeroInt(int *x, int length) {
@@ -409,3 +411,106 @@ void calculateBoundaries(double *weights, double *boundaries, int populationSize
         boundaries[i] = currentSum;
     }
 }
+
+
+
+void findNeighbors(double *x, int *cl, int *neighbors1, int *neighbors2, 
+                   int mdim, int nsample) {
+  
+  int indices1[nsample];
+  int indices2[nsample];
+  
+  double distances1[nsample];
+  double distances2[nsample];
+  
+  // Second Class Neighbor Calculation
+  // Calculate Euclidean distance between the current row and all other rows
+  for (int j = 0; j < nsample; j++) {
+    
+    for (int i = 0; i < nsample; i++) {
+    
+      distances1[i] = 0.0;
+      distances2[i] = 0.0;
+      
+      indices1[i] = i;
+      indices2[i] = i;
+      
+      for (int k = 0; k < mdim; k++) {
+        
+        double diff = x[k + j * mdim] - x[k + i * mdim];
+        
+        distances1[i] += diff * diff;
+        distances2[i] += diff * diff;
+      
+      }
+      
+      distances1[i] = sqrt(distances1[i]);
+      distances2[i] = sqrt(distances2[i]);
+      
+      if (distances1[i] == 0 || cl[i] == 2) distances1[i] = INFINITY;
+      if (distances2[i] == 0 || cl[i] == 1) distances2[i] = INFINITY;
+      
+    }
+    // Sort distances and store indices
+    for (int s1 = 0; s1 < nsample - 1; s1++) {
+      for (int s2 = s1 + 1; s2 < nsample; s2++) {
+        if (distances1[s1] > distances1[s2]) {
+          double temp_dist = distances1[s1];
+          distances1[s1] = distances1[s2];
+          distances1[s2] = temp_dist;
+          int temp_idx = indices1[s1];
+          indices1[s1] = indices1[s2];
+          indices1[s2] = temp_idx;
+        }
+      }
+    }
+    for (int k = 0; k < 10; k++) {
+      neighbors1[j * 10 + k] = indices1[k];
+    }
+  
+  // Sort distances and store indices
+    for (int s1 = 0; s1 < nsample - 1; s1++) {
+      for (int s2 = s1 + 1; s2 < nsample; s2++) {
+        if (distances2[s1] > distances2[s2]) {
+          double temp_dist = distances2[s1];
+          distances2[s1] = distances2[s2];
+          distances2[s2] = temp_dist;
+          int temp_idx = indices2[s1];
+          indices2[s1] = indices2[s2];
+          indices2[s2] = temp_idx;
+        }
+      }
+    }
+    
+    for (int k = 0; k < 10; k++) {
+      neighbors2[j * 10 + k] = indices2[k];
+    }
+
+    // Reset indices and distances
+    for (int l = 0; l < nsample; l++) {
+      distances1[l] = 0.0;
+      distances2[l] = 0.0;
+      
+      indices1[l] = l;
+      indices2[l] = l;
+    }
+  }  
+}
+
+void calculateMaxdiff(double *x, double *maxdiff, int mdim, int nsample){
+  for(int k = 0; k < mdim; k++){
+    double diff = 0.0;
+    for (int i = 0; i < nsample; i++) {
+      for (int j = i + 1; j < nsample; j++) {
+        diff = fabs(x[k + j * mdim] - x[k + i * mdim]);
+        if (diff > maxdiff[k]) {
+          maxdiff[k] = diff;
+        }
+      }
+    }
+  }
+}
+
+
+    
+

@@ -91,7 +91,10 @@ void sampleWithoutReplacementWithWeights(int sampleSize, int populationSize, dou
 void removeWeightAndNormalize(double *weights, int indexToRemove, int populationSize);
 void calculateBoundaries(double *weights, double *boundaries, int populationSize, int numBoundaries);
 void normalizeWeights(double *weights, int numWeights);
-/* Template of Fortran subroutines to be called from the C wrapper */
+void findNeighbors(double *x, int *cl, int *neighbors1, int *neighbors2, 
+                   int mdim, int nsample);
+void calculateMaxdiff(double *x, double *maxdiff, int mdim, int nsample);
+  /* Template of Fortran subroutines to be called from the C wrapper */
 extern void F77_NAME(buildtree)(int *a, int *b, int *cl, int *cat,
 				int *maxcat, int *mdim, int *nsample,
 				int *nclass, int *treemap, int *bestvar,
@@ -102,7 +105,7 @@ extern void F77_NAME(buildtree)(int *a, int *b, int *cl, int *cat,
 				int *ta, int *nrnodes, int *,
 				int *, int *, int *, int *, int *, int *,
 				double *, double *, double *,
-				int *, int *, int *, int *mevaluation);
+				int *, int *, int *, int *mevaluation, int *w_refl, int *isRelief);
 
 /* maximum number of categories allowed in categorical predictors */
 #define MAX_CAT 53

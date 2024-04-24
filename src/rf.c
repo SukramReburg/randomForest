@@ -24,7 +24,10 @@ Modifications to get the forest out Matt Wiener Feb. 26, 2002.
 #include <R.h>
 #include <R_ext/Utils.h>
 #include "rf.h"
-
+#include <stdio.h> 
+#include <stdlib.h>
+#include <time.h>
+#include <math.h>
 void oob(int nsample, int nclass, int *cl, int *jtr,int *jerr,
          int *counttr, int *out, double *errtr, int *jest, double *cutoff);
 
@@ -43,7 +46,8 @@ void classRF(double *x, int *dimx, int *cl, int *ncl, int *cat, int *maxcat,
              int *ndbigtree, int *nodestatus, int *bestvar, int *treemap,
              int *nodeclass, double *xbestsplit, double *errtr,
              int *testdat, double *xts, int *clts, int *nts, double *countts,
-             int *outclts, int *labelts, int *attrEval, int *num_attrEval, double *proxts, double *errts,
+             int *outclts, int *labelts, int *attrEval, int *num_attrEval,  int *isRelief,
+             double *proxts, double *errts,
              int *inbag) {
   /******************************************************************
    *  C wrapper for random forests:  get input from R and drive
@@ -86,22 +90,24 @@ void classRF(double *x, int *dimx, int *cl, int *ncl, int *cat, int *maxcat,
 
   int nsample0, mdim, nclass, addClass, mtry, ntest, nsample, ndsize,
   mimp, nimp, near, nuse, noutall, nrightall, nrightimpall,
-  keepInbag, nstrata;
+  keepInbag, nstrata, nsample1, nsample2, 
+  obs_idx, mis_idx, hit_idx, near_hit, near_mis;
   int jb, j, n, m, k, idxByNnode, idxByNsample, imp, localImp, iprox,
   oobprox, keepf, replace, stratify, trace, *nright,
-  *nrightimp, *nout, *nclts, Ntree, lae, mevaluation;
+  *nrightimp, *nout, *nclts, Ntree, lae, mevaluation, *m_reflp;
 
   int *out, *nodepop, *jin, *nodex,
   *nodexts, *nodestart, *ta, *ncase, *jerr, *varUsed,
   *jtr, *classFreq, *idmove, *jvr,
-  *at, *a, *b, *mind, *nind, *jts, *oobpair, *sampledIndices;
+  *at, *a, *b, *mind, *nind, *jts, *oobpair, *sampledIndices,
+  *neighbors1, *neighbors2;
   // , *attrEvalvec;
   int **strata_idx, *strata_size, last, ktmp, nEmpty, ntry;
   double **stratified_weight_subsets;
   double av=0.0, delta=0.0;
 
   double *tgini, *tx, *wl, *classpop, *tclasscat, *tclasspop, *win,
-  *tp, *wr, *bestsplitnext, *bestsplit;
+  *tp, *wr, *bestsplitnext, *bestsplit, *maxdiff, *w_refl;
 
   addClass = Options[0];
   imp      = Options[1];
@@ -109,10 +115,10 @@ void classRF(double *x, int *dimx, int *cl, int *ncl, int *cat, int *maxcat,
   iprox    = Options[3];
   oobprox  = Options[4];
   trace    = Options[5];
-  keepf    = Options[6];
   replace  = Options[7];
   stratify = Options[8];
   keepInbag = Options[9];
+  keepf    = Options[6];
   mdim     = dimx[0];
   nsample0 = dimx[1];
   nclass   = (*ncl==1) ? 2 : *ncl;
@@ -138,6 +144,8 @@ void classRF(double *x, int *dimx, int *cl, int *ncl, int *cat, int *maxcat,
   tp =         (double *) S_alloc(nsample, sizeof(double));
   bestsplitnext = (double *) S_alloc(*nrnodes, sizeof(double));
   bestsplit =     (double *) S_alloc(*nrnodes, sizeof(double));
+  maxdiff =       (double *) S_alloc(mdim, sizeof(double));
+  w_refl =             (double *) S_alloc(mdim, sizeof(double));
 
   out =           (int *) S_alloc(nsample, sizeof(int));
   // attrEvalvec =   (int *) S_alloc(Ntree, sizeof(int));
@@ -162,14 +170,18 @@ void classRF(double *x, int *dimx, int *cl, int *ncl, int *cat, int *maxcat,
   nright =        (int *) S_alloc(nclass, sizeof(int));
   nrightimp =     (int *) S_alloc(nclass, sizeof(int));
   nout =          (int *) S_alloc(nclass, sizeof(int));
+  neighbors1 =     (int *) S_alloc(nsample*10, sizeof(int));
+  neighbors2 =     (int *) S_alloc(nsample*10, sizeof(int));
   sampledIndices = (int *) S_alloc(nsample, sizeof(int));
+  m_reflp =    (int *) S_alloc(mdim, sizeof(int));
   if (oobprox) {
     oobpair = (int *) S_alloc(near*near, sizeof(int));
   }
-
+  
   /* Count number of cases in each class. */
   zeroInt(classFreq, nclass);
   for (n = 0; n < nsample; ++n) classFreq[cl[n] - 1] ++;
+  
   /* Normalize class weights. */
   normClassWt(cl, nsample, nclass, *ipi, classwt, classFreq);
 
@@ -224,7 +236,7 @@ void classRF(double *x, int *dimx, int *cl, int *ncl, int *cat, int *maxcat,
   }
   /* pre-sort x data */
   makeA(x, mdim, nsample, cat, at, b);
-
+  
   R_CheckUserInterrupt();
 
 
@@ -240,6 +252,79 @@ void classRF(double *x, int *dimx, int *cl, int *ncl, int *cat, int *maxcat,
     }
     Rprintf("\n");
   }
+  if (nclass == 2 && *isRelief == 1){
+    zeroInt(neighbors1, nsample * 10);
+    zeroInt(neighbors2, nsample * 10);
+    
+    findNeighbors(x, cl, neighbors1, neighbors2, 
+                  mdim, nsample);
+    
+    srand(time(NULL));
+    int nsim = 10000;
+    
+    zeroDouble(maxdiff, mdim);
+    zeroDouble(w_refl, mdim);
+    zeroInt(m_reflp, mdim);
+    calculateMaxdiff(x, maxdiff, mdim, nsample);
+    
+    for(int i = 0; i < nsim; i++){
+      obs_idx = rand() % nsample;
+      mis_idx = rand() % 10;
+      hit_idx = rand() % 10;
+      
+      if (cl[obs_idx] == 1){ 
+          near_hit = neighbors1[obs_idx*10 + hit_idx];
+          near_mis = neighbors2[obs_idx*10 + mis_idx];
+      } else {
+          near_hit = neighbors2[obs_idx*10 + hit_idx];
+          near_mis = neighbors1[obs_idx*10 + mis_idx];
+      }
+      
+      for(int k = 0; k < mdim; k++){
+        double diff_hit = x[k + mdim * obs_idx] - x[k + mdim * near_hit];
+        diff_hit = diff_hit * diff_hit;
+        diff_hit = diff_hit / maxdiff[k];
+        
+        double diff_mis = x[k + mdim * obs_idx] - x[k + mdim * near_mis];
+        diff_mis = diff_mis * diff_mis;
+        diff_mis = diff_mis / maxdiff[k];
+        
+        w_refl[k] = w_refl[k] - diff_hit + diff_mis;
+      }
+    }
+
+    for(int k = 0; k < mdim; k++){
+      w_refl[k] = w_refl[k]/nsim;
+    }
+
+    double min_value = w_refl[0];
+    for (int k = 1; k < mdim; k++) {
+      if (w_refl[k] < min_value) {
+        min_value = w_refl[k];
+      }
+    }
+    if (min_value < 0) {
+      for (int k = 0; k < mdim; k++) {
+        w_refl[k] += fabs(min_value);  // Add the absolute value of the smallest value
+      }
+    }
+    
+    // Step 2: Normalize the values to obtain probabilities
+    double sum_values = 0;
+    for (int k = 0; k < mdim; k++) {
+      sum_values += w_refl[k];
+    }
+    for (int k = 0; k < mdim; k++) {
+      w_refl[k] = round((w_refl[k]/sum_values) * 10000);
+    }
+
+    for (int k = 0; k < mdim; k++) {
+      m_reflp[k] = (int)w_refl[k];
+    }
+  }else{
+    zeroInt(m_reflp, mdim);
+  }
+  
   idxByNnode = 0;
   idxByNsample = 0;
   for (jb = 0; jb < Ntree; jb++) {
@@ -265,8 +350,8 @@ void classRF(double *x, int *dimx, int *cl, int *ncl, int *cat, int *maxcat,
         
         for(n = 0; n < nstrata; ++n){
           normalizeWeights(stratified_weight_subsets[n], strata_size[n]);
-          /*Rprintf("sample size in strata %d: %d\n strata size: %d\n", n, sampsize[n], strata_size[n]);*/
           sampleDataRows(strata_size[n], sampsize[n], *useweights, replace, stratified_weight_subsets[n], sampledIndices);
+          // Rprintf("sample size in strata %d: %d\n strata size: %d\n", n, sampsize[n], strata_size[n]);
           for(j = 0; j < sampsize[n]; ++j){
             k = strata_idx[n][sampledIndices[j]];
             tclasspop[cl[k] - 1] += classwt[cl[k]-1];
@@ -289,6 +374,8 @@ void classRF(double *x, int *dimx, int *cl, int *ncl, int *cat, int *maxcat,
           /*[1,3,2,4,5,]*/
           for(n = 0; n < *sampsize; ++n){
             k = sampledIndices[n];
+            // Rprintf("sample : %d", k);
+            // Rprintf("; \n");
             /*Rprintf("K:%d class: %d weight of class: %f\n", k, cl[k], classwt[cl[k]-1]);*/
             tclasspop[cl[k] - 1] += classwt[cl[k]-1];
             win[k] += classwt[cl[k]-1];
@@ -314,12 +401,13 @@ void classRF(double *x, int *dimx, int *cl, int *ncl, int *cat, int *maxcat,
           inbag[n + idxByNsample] = jin[n];
         }
       }
-
+      
       /* Copy the original a matrix back. */
       memcpy(a, at, sizeof(int) * mdim * nsample);
       modA(a, &nuse, nsample, mdim, cat, *maxcat, ncase, jin);
+      // Rprintf("Relief is %d\n", *isRelief);
       mevaluation = attrEval[jb % lae];
-      // Rprintf("before F77_CALL(buildtree): %d\n ", mevaluation);
+
       F77_CALL(buildtree)(a, b, cl, cat, maxcat, &mdim, &nsample,
                &nclass,
                treemap + 2*idxByNnode, bestvar + idxByNnode,
@@ -329,11 +417,9 @@ void classRF(double *x, int *dimx, int *cl, int *ncl, int *cat, int *maxcat,
                ta, nrnodes, idmove, &ndsize, ncase,
                &mtry, varUsed, nodeclass + idxByNnode,
                ndbigtree + jb, win, wr, wl, &mdim,
-               &nuse, mind, &mevaluation);
+               &nuse, mind, &mevaluation, m_reflp, isRelief);
       /* if the "tree" has only the root node, start over */
     } while (ndbigtree[jb] == 1);
-    Rprintf("Value of mevaluation: %d\n", mevaluation);
-    // Rprintf("Fortran call successfull!");
     Xtranslate(x, mdim, *nrnodes, nsample, bestvar + idxByNnode,
                bestsplit, bestsplitnext, xbestsplit + idxByNnode,
                nodestatus + idxByNnode, cat, ndbigtree[jb]);

@@ -22,7 +22,7 @@ c     SUBROUTINE BUILDTREE
      1     nodestatus,nodepop, nodestart, classpop, tclasspop,
      1     tclasscat,ta,nrnodes, idmove, ndsize, ncase, mtry, iv,
      1     nodeclass, ndbigtree, win, wr, wl, mred, nuse, mind,  
-     1     mevaluation)
+     1     mevaluation, m_reflp, isRelief)
 
 c     Buildtree consists of repeated calls to two subroutines, Findbestsplit
 c     and Movedata.  Findbestsplit does just that--it finds the best split of
@@ -46,20 +46,24 @@ c     main program.
      1     nodepop(nrnodes), nodestart(nrnodes),
      1     idmove(nsample),
      1     ncase(nsample), b(mdim,nsample),
-     1     iv(mred), nodeclass(nrnodes), mind(mred), mevaluation
+     1     iv(mred), nodeclass(nrnodes), mind(mred), mevaluation,
+     1     isRelief, m_reflp(mdim)
 
       double precision tclasspop(nclass), classpop(nclass, nrnodes),
      1     tclasscat(nclass, 53), win(nsample), wr(nclass),
      1     wl(nclass), tgini(mdim),
      1     bestsplit(nrnodes), bestsplitnext(nrnodes), xrand
       integer msplit, ntie
-
+      
       msplit = 0
 
       call zerv(nodestatus,nrnodes)
       call zerv(nodestart,nrnodes)
       call zerv(nodepop,nrnodes)
       call zermr(classpop,nclass,nrnodes)
+      
+      call print_integer(nrnodes)
+      
 
       do j=1,nclass
          classpop(j, 1) = tclasspop(j)
@@ -85,7 +89,7 @@ c     initialize for next call to findbestsplit
          call findbestsplit(a,b,cl,mdim,nsample,nclass,cat,maxcat,
      1        ndstart, ndend,tclasspop,tclasscat,msplit, decsplit,
      1        best,ncase, jstat,mtry,win,wr,wl,mred,mind,
-     1        mevaluation)
+     1        mevaluation, isRelief,  m_reflp)
 c         call intpr("jstat", 5, jstat, 1)
 c         call intpr("msplit", 6, msplit, 1)
 c     If the node is terminal, move on.  Otherwise, split.
@@ -201,16 +205,23 @@ c     the coding into an integer of the categories going left.
       subroutine findbestsplit(a, b, cl, mdim, nsample, nclass, cat,
      1     maxcat, ndstart, ndend, tclasspop, tclasscat, msplit,
      2     decsplit, best, ncase, jstat, mtry, win, wr, wl,
-     3     mred, mind, mevaluation)
+     3     mred, mind, mevaluation, isRelief, m_reflp)
       implicit double precision(a-h,o-z)
       integer a(mdim,nsample), cl(nsample), cat(mdim),
-     1     ncase(nsample), b(mdim,nsample), nn, j
+     1     ncase(nsample), b(mdim,nsample), nn, j, i, m_reflp(mdim)
       double precision tclasspop(nclass), tclasscat(nclass,53), dn(53),
-     1     win(nsample), wr(nclass), wl(nclass), xrand
-      integer mind(mred), ncmax, ncsplit,nhit, ntie
+     1     win(nsample), wr(nclass), wl(nclass), xrand, 
+     1     featw(mtry), nen(ndend - ndstart + 1), w_cum(mdim), 
+     1     m_reflp_n(mdim), a_mdl, bl_mdl, br_mdl, c_mdl,
+     1     dl_mdl, dr_mdl, tmp_mdl, factmp, factmp1, factmp2
+      integer mind(mred), ncmax, ncsplit,nhit, ntie, ndlen,
+     1     l, m, n
+      character*255 my_ch
+      character*255 my_c1
+      character*255 my_c2
       ncmax = 10
       ncsplit = 512
-
+      
 c     compute initial values of numerator and denominator of Gini
       pno = 0.0
       pdo = 0.0
@@ -227,10 +238,36 @@ c     start main loop through variables to find best split
          mind(k) = k
       end do
       nn = mred
+      
+
+      
 c     sampling mtry variables w/o replacement.
       do mt = 1, mtry
+
          call rrand(xrand)
-         j = int(nn * xrand) + 1
+         
+         if(isRelief .eq. 1) then
+            call zervr(w_cum, mtry)
+            
+            do i = 1, mdim
+                m_reflp_n(i) = m_reflp(i)
+                m_reflp_n(i) = m_reflp_n(i)/10000
+            end do
+            
+            w_cum(1) = m_reflp_n(1)
+            do i = 2, mdim
+               w_cum(i) = w_cum(i-1) + m_reflp_n(i)
+            end do
+
+            
+            j = 1
+            do while (j < nn .and. w_cum(mind(j)) < xrand)
+               j = j + 1
+            end do
+         else
+            j = int(nn * xrand) + 1
+         end if
+         
          mvar = mind(j)
          mind(j) = mind(nn)
          mind(nn) = mvar
@@ -283,48 +320,162 @@ c     Break   ties at random:
               end do
             end if
             if(mevaluation .eq. 2) then
-              rrn = pno
-              rrd = pdo
-              rln = 0
-              rld = 0
-              call zervr(wl, nclass)
-              do j = 1, nclass
-                 wr(j) = tclasspop(j)
-              end do
-              ntie = 1
-              do nsp = ndstart, ndend-1
-                 nc = a(mvar, nsp)
-                 u = win(nc)
-                 k = cl(nc)
-                 rln = rln + u * (2 * wl(k) + u)
-                 rrn = rrn + u * (-2 * wr(k) + u)
-                 rld = rld + u
-                 rrd = rrd - u
-                 wl(k) = wl(k) + u
-                 wr(k) = wr(k) - u
-                 if (b(mvar, nc) .lt. b(mvar, a(mvar, nsp + 1))) then
-c     If nei  her nodes is empty, check the split.
-                    if (dmin1(rrd, rld) .gt. 1.0e-5) then
-                       crit = (rln / rld) + (rrn / rrd)
-                       if (crit .gt. critmax) then
-                          best = dble(nsp)
-                          critmax = crit
-                          msplit = mvar
-                          ntie = 1
-                       end if
-c     Break   ties at random:
-                       if (crit .eq. critmax) then
-                          ntie = ntie + 1
-                          call rrand(xrand)
-                          if (xrand .lt. 1.0 / ntie) then
-                             best = dble(nsp)
-                             critmax = crit
-                             msplit = mvar
-                          end if
-                       end if
-                    end if
-                 end if
-              end do
+                call zervr(wl, nclass)
+                a_denom = 1
+                do j = 1, nclass
+                   wr(j) = tclasspop(j)
+                end do
+                
+                ntie = 1
+                ndlen = ndend - ndstart + 1
+                
+                rrd = pdo
+                rld = 0
+                
+                call fct_log_a(ndlen, tclasspop, nclass, a_mdl)
+                call fct_log_c(ndlen, nclass, c_mdl)
+                
+                do nsp = ndstart, ndend-1
+                   nc = a(mvar, nsp)
+                   u = win(nc)
+                   k = cl(nc)
+  
+                   rld = rld + u
+                   rrd = rrd - u
+                    
+                   wr(k) = wr(k) - u
+                   wl(k) = wl(k) + u
+                   
+                   if (b(mvar, nc) .lt. b(mvar, a(mvar, nsp + 1))) then
+c     If neither nodes is empty, check the split.
+                      if (dmin1(rrd, rld) .gt. 1.0e-5) then
+                         call fct_log_b(rrd, rld, wr, wl, nclass, b_mdl)
+                         call fct_log_d(rrd, rld, nclass, d_mdl)
+                         tmp_mdl = a_mdl-b_mdl+c_mdl-d_mdl
+                         crit = (1.0/ndlen)*tmp_mdl  
+                         if (crit .gt. critmax) then
+                            best = dble(nsp)
+                            critmax = crit
+                            msplit = mvar
+                            ntie = 1
+                         end if
+c     Break ties at random:
+                         if (crit .eq. critmax) then
+                            ntie = ntie + 1
+                            call rrand(xrand)
+                            if (xrand .lt. 1.0 / ntie) then
+                               best = dble(nsp)
+                               critmax = crit
+                               msplit = mvar
+                            end if
+                         end if
+                      end if
+                   end if
+                end do
+            end if
+            if(mevaluation .eq. 3 .or.
+     &         mevaluation .eq. 4 .or. 
+     &         mevaluation .eq. 5 .or. 
+     &         mevaluation .eq. 6 .or.
+     &         mevaluation .eq. 7 .or.
+     &         mevaluation .eq. 8) then
+                call zervr(wl, nclass)
+                do j = 1, nclass
+                   wr(j) = tclasspop(j)
+                end do
+                
+                ntie = 1
+                
+                rrd = pdo
+                rld = 0
+                
+                do nsp = ndstart, ndend-1
+                   nc = a(mvar, nsp)
+                   u = win(nc)
+                   k = cl(nc)
+  
+                   rld = rld + u
+                   rrd = rrd - u
+
+                   wr(k) = wr(k) - u
+                   wl(k) = wl(k) + u
+
+                   if (b(mvar, nc) .lt. b(mvar, a(mvar, nsp + 1))) then
+c     If neither nodes is empty, check the split.
+                      if (dmin1(rrd, rld) .gt. 1.0e-5) then
+c     Accuracy
+                         if (mevaluation .eq. 3) then
+                             if (wl(2)/rld < wr(2)/rrd) then
+                                 crit = (wl(1)+wr(2))/
+     &                                  (wl(1)+wl(2)+wr(1)+wr(2))
+                             else 
+                                 crit = (wl(2) + wr(1))/
+     &                                  (wl(1)+wl(2)+wr(1)+wr(2))
+                             end if
+                         end if
+c     Precision
+                         if (mevaluation .eq. 4) then
+                             if (wl(2)/rld < wr(2)/rrd) then
+                                 crit = wr(2)/(wr(2)+wr(1))
+                             else 
+                                 crit = wl(2)/(wl(2)+wl(1))
+                             end if
+                         end if
+c     Recall
+                         if (mevaluation .eq. 5) then
+                             if (wl(2)/rld < wr(2)/rrd) then
+                                 crit = wr(2)/(wr(2)+wl(2))
+                             else 
+                                 crit = wl(2)/(wl(2)+wr(2))
+                             end if
+                         end if
+c     Specificity                         
+                         if (mevaluation .eq. 6) then
+                             if (wl(2)/rld < wr(2)/rrd) then
+                                 crit = wl(1)/(wl(1)+wr(1))
+                             else 
+                                 crit = wr(1)/(wr(1)+wl(1))
+                             end if
+                         end if
+c     F-score beta = 0.5                         
+                         if (mevaluation .eq. 7) then
+                             if (wl(2)/rld < wr(2)/rrd) then
+                                 crit = (1.25)*wr(2)/
+     &                             (1.25*wr(2)+0.25*wl(2)+wr(1))
+                             else 
+                                 crit = (1.25)*wl(2)/
+     &                             (1.25*wl(2)+0.25*wr(2)+wl(1))
+                             end if
+                         end if
+c     F-score beta = 2                         
+                         if (mevaluation .eq. 8) then
+                             if (wl(2)/rld < wr(2)/rrd) then
+                                 crit = (5.0)*wr(2)/
+     &                             (5.0*wr(2)+4.0*wl(2)+wr(1))
+                             else 
+                                 crit = (5.0)*wl(2)/
+     &                             (5.0*wl(2)+4.0*wr(2)+wl(1))
+                             end if
+                         end if
+                         if (crit .gt. critmax) then
+                            best = dble(nsp)
+                            critmax = crit
+                            msplit = mvar
+                            ntie = 1
+                         end if
+c     Break ties at random:
+                         if (crit .eq. critmax) then
+                            ntie = ntie + 1
+                            call rrand(xrand)
+                            if (xrand .lt. 1.0 / ntie) then
+                               best = dble(nsp)
+                               critmax = crit
+                               msplit = mvar
+                            end if
+                         end if
+                      end if
+                   end if
+                end do
             end if
          else
 c     Split on a categorical predictor.  Compute the decrease in impurity.
@@ -541,3 +692,124 @@ c      end
          end do
       end do
       end
+      
+      subroutine zerwr(rx,m3)
+      double precision rx(m3)
+      do n=1,m3
+         rx(n)=0.0d0
+      end do
+      end
+            
+      subroutine zernn(rx,m3)
+      double precision rx(m3)
+      do n=1,m3
+         rx(n)=0.0d0
+      end do
+      end
+      
+      subroutine print_line(value)
+      character*255 value
+      integer nchar
+      nchar = len_trim(value)
+      call labelpr(value, nchar)
+      end subroutine print_line
+      
+      subroutine print_double(value)
+      double precision value
+      call dblepr1(' ', -1, value)
+      end subroutine print_double
+      
+      subroutine print_integer(value)
+      integer value
+      call intpr1(' ', -1, value)
+      end subroutine print_integer
+
+      subroutine fct_log_a(ii1, di1, ip1, do1)
+      integer ii1, ip1, l, m, n
+      double precision di1(ip1), do1, dtmp1, dtmp2
+      dtmp1 = 0
+      dtmp2 = 0
+      do l = 0, ii1-1
+          dtmp1 = dtmp1 + log(ii1 - real(l))
+      end do
+      dtmp1 = dtmp1/log(2.0)
+      do n = 1, ip1 
+          do l = 0, int(di1(n))-1
+              dtmp2 = dtmp2 + log(di1(n) - real(l))
+          end do
+      end do 
+      dtmp2 = dtmp2/log(2.0)
+      do1 = dtmp1 - dtmp2
+      end
+      
+      subroutine fct_log_b(di1, di2, di3, di4, ip1, do1)
+      integer ip1, l, m, n
+      double precision do1,di1,di2,di3(ip1),di4(ip1),
+     1     dtmp1,dtmp2,dtmp3, dtmp4
+      dtmp1 = 0
+      dtmp2 = 0
+      dtmp3 = 0
+      dtmp4 = 0
+      do l = 0, int(di1) - 1
+          dtmp1 = dtmp1 + log(di1 - real(l))
+      end do
+      dtmp1 = dtmp1/log(2.0)
+      do l = 0, int(di2) - 1
+          dtmp2 = dtmp2 + log(di2 - real(l))
+      end do 
+      dtmp2 = dtmp2/log(2.0)
+      do n = 1, ip1
+          do l = 0, int(di3(n)) - 1 
+              dtmp3 = dtmp3 + log(di3(n) - real(l))
+          end do
+          do l = 0, int(di4(n)) - 1
+              dtmp4 = dtmp4 + log(di4(n) - real(l))
+          end do  
+      end do
+      dtmp3 = dtmp3/log(2.0)
+      dtmp4 = dtmp4/log(2.0)
+      do1 = dtmp1 - dtmp3 + dtmp2 - dtmp4
+      end
+      
+      subroutine fct_log_c(ii1, ii2, do1)
+      integer ii1, ii2, l
+      double precision do1, dtmp1, dtmp2, dtmp3
+      dtmp1 = 0
+      dtmp2 = 0
+      dtmp3 = 0
+      do l = 0, ii1 + ii2 - 2
+          dtmp1 = dtmp1 + log(ii1 + ii2 - 1 - real(l))
+      end do
+      dtmp1 = dtmp1/log(2.0)
+      do l = 0, ii2 - 2 
+          dtmp2 = dtmp2 + log(ii2 - 1 - real(l))
+      end do
+      dtmp2 = dtmp2/log(2.0)
+      do l = 0, ii1 - 1
+          dtmp3 = dtmp3 + log(ii1 - real(l))
+      end do
+      dtmp3 = dtmp3/log(2.0)
+      do1 = dtmp1 - dtmp2 - dtmp3
+      end
+      
+      subroutine fct_log_d(di1, di2, ii1, do1)
+      integer ii1, l
+      double precision do1, di1, di2, dtmp1, dtmp2, dtmp3
+      dtmp1 = 0
+      dtmp2 = 0
+      dtmp3 = 0
+      do l = 0, int(di1) + ii1 - 2
+          dtmp1 = dtmp1 + log(di1 + ii1 - 1 - real(l))
+      end do
+      dtmp1 = dtmp1/log(2.0)
+      do l = 0, ii1 -2
+          dtmp2 = dtmp2 + log(ii1 - 1 - real(l))
+      end do
+      dtmp2 = 2*dtmp2/log(2.0)
+      do l = 0, int(di2) - 1
+          dtmp3 = dtmp3 + log(di2 - real(l))
+      end do
+      dtmp3 = dtmp3/log(2.0)
+      do1 = dtmp1 - dtmp2 + dtmp3
+      end
+      

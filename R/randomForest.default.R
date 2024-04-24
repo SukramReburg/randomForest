@@ -14,10 +14,10 @@ mylevels <- function(x) if (is.factor(x)) levels(x) else 0
              proximity, oob.prox=proximity,
              norm.votes=TRUE, do.trace=FALSE,
              keep.forest=!is.null(y) && is.null(xtest), corr.bias=FALSE,
-             keep.inbag=FALSE, attrEval = as.integer(1), ...) {
+             keep.inbag=FALSE, attrEval = as.integer(1), isRelief = FALSE, ...) {
     addclass <- is.null(y)
     classRF <- addclass || is.factor(y)
-    if (any(!(attrEval %in% c(1,2,3,4,5)))) {
+    if (any(!(attrEval %in% 1:8))) {
       stop("Attribute Evaluation Method not avaiable. For more Information call InfoAttr().")
     }
     if (!classRF && length(unique(y)) <= 5) {
@@ -251,7 +251,8 @@ mylevels <- function(x) if (is.factor(x)) levels(x) else 0
                     keep.forest,
                     replace,
                     Stratify,
-                    keep.inbag)),
+                    keep.inbag,
+                    isRelief)),
                     ntree = as.integer(ntree),
                     mtry = as.integer(mtry),
                     ipi = as.integer(ipi),
@@ -281,6 +282,7 @@ mylevels <- function(x) if (is.factor(x)) levels(x) else 0
                     labelts = as.integer(labelts),
                     attrEval = as.integer(attrEval),
                     num_attrEval = as.integer(num_attrEval),
+                    isRelief = as.integer(isRelief),
                     proxts = proxts,
                     errts = error.test,
                     inbag = if (keep.inbag)
