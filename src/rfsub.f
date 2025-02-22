@@ -61,9 +61,6 @@ c     main program.
       call zerv(nodestart,nrnodes)
       call zerv(nodepop,nrnodes)
       call zermr(classpop,nclass,nrnodes)
-      
-      call print_integer(nrnodes)
-      
 
       do j=1,nclass
          classpop(j, 1) = tclasspop(j)
