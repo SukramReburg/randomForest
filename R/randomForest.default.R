@@ -14,10 +14,14 @@ mylevels <- function(x) if (is.factor(x)) levels(x) else 0
              proximity, oob.prox=proximity,
              norm.votes=TRUE, do.trace=FALSE,
              keep.forest=!is.null(y) && is.null(xtest), corr.bias=FALSE,
-             keep.inbag=FALSE, attrEval = as.integer(1), isRelief = FALSE, ...) {
+             keep.inbag=FALSE, attrEval = as.integer(1), Relief = as.double(0), 
+             isSizeopt = FALSE, ...) {
     addclass <- is.null(y)
     classRF <- addclass || is.factor(y)
-    if (any(!(attrEval %in% 1:8))) {
+    if(is.na(Relief) | is.null(Relief) | Relief < 0){
+      stop("Relief must be a positive parameter.")
+    }
+    if (any(!(attrEval %in% 1:9))) {
       stop("Attribute Evaluation Method not avaiable. For more Information call InfoAttr().")
     }
     if (!classRF && length(unique(y)) <= 5) {
@@ -252,7 +256,7 @@ mylevels <- function(x) if (is.factor(x)) levels(x) else 0
                     replace,
                     Stratify,
                     keep.inbag,
-                    isRelief)),
+                    isRelief = as.integer(T))),
                     ntree = as.integer(ntree),
                     mtry = as.integer(mtry),
                     ipi = as.integer(ipi),
@@ -282,7 +286,9 @@ mylevels <- function(x) if (is.factor(x)) levels(x) else 0
                     labelts = as.integer(labelts),
                     attrEval = as.integer(attrEval),
                     num_attrEval = as.integer(num_attrEval),
-                    isRelief = as.integer(isRelief),
+                    Relief = as.double(Relief),
+                    entropyweights = double(ntree * nrnodes),
+                    w_refl = double(p),
                     proxts = proxts,
                     errts = error.test,
                     inbag = if (keep.inbag)
@@ -326,6 +332,17 @@ mylevels <- function(x) if (is.factor(x)) levels(x) else 0
                 testcon <- cbind(testcon,
                                  class.error = 1 - diag(testcon)/rowSums(testcon))
             }
+        }
+        if(isSizeopt) {
+          # omega <- rfout$entropyweights
+          omega <-
+            split(rfout$entropyweights[rfout$entropyweights != 0], 
+                  rep(1:rfout$ntree, each = rfout$xdim[[1]]))
+
+          
+        }
+        if(Relief > 0) {
+          relief.weights <- rfout$w_refl
         }
         cl <- match.call()
         cl[[1]] <- as.name("randomForest")
@@ -385,7 +402,9 @@ mylevels <- function(x) if (is.factor(x)) levels(x) else 0
                     dimnames = list(xts.row.names, c(xts.row.names,
                     x.row.names))) else NULL),
                     inbag = if (keep.inbag) matrix(rfout$inbag, nrow=nrow(rfout$inbag),
-										dimnames=list(x.row.names, NULL)) else NULL)
+										dimnames=list(x.row.names, NULL)) else NULL,
+										omega = if(isSizeopt) omega else NULL,
+										relief.weights = if(Relief > 0) relief.weights else NULL)
     } else {
 		ymean <- mean(y)
 		y <- y - ymean

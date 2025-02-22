@@ -1,6 +1,7 @@
 "predict.randomForest" <-
     function (object, newdata, type = "response", norm.votes = TRUE,
-              predict.all=FALSE, proximity = FALSE, nodes=FALSE, cutoff, ...)
+              predict.all=FALSE, proximity = FALSE, nodes=FALSE, cutoff, 
+              weight_voting = NULL, ...)
 {
     if (!inherits(object, "randomForest"))
         stop("object not of class randomForest")
@@ -108,6 +109,7 @@
         if (!all(object$forest$ncat == cat.new))
             stop("Type of predictors in new data do not match that of the training data.")
     }
+    
     mdim <- ncol(x)
     ntest <- nrow(x)
     ntree <- object$forest$ntree
@@ -118,6 +120,9 @@
     op <- options(warn=-1)
     on.exit(options(op))
     x <- t(data.matrix(x))
+    
+    if(is.null(weight_voting)) weight_voting <- rep(1, ntree)
+    
 
     if (predict.all) {
         treepred <- if (object$type == "regression") {
@@ -239,6 +244,7 @@
                  prox = as.integer(proximity),
                  proxmatrix = as.double(proxmatrix),
                  nodes = as.integer(nodes),
+                 weight_voting = as.double(weight_voting),
                  #DUP=FALSE,
                  PACKAGE = "randomForest")
         if (out.type > 1) {
