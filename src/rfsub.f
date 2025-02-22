@@ -22,7 +22,7 @@ c     SUBROUTINE BUILDTREE
      1     nodestatus,nodepop, nodestart, classpop, tclasspop,
      1     tclasscat,ta,nrnodes, idmove, ndsize, ncase, mtry, iv,
      1     nodeclass, ndbigtree, win, wr, wl, mred, nuse, mind,  
-     1     mevaluation, m_reflp, isRelief)
+     1     mevaluation, m_reflp, isRelief, entr_tmp)
 
 c     Buildtree consists of repeated calls to two subroutines, Findbestsplit
 c     and Movedata.  Findbestsplit does just that--it finds the best split of
@@ -52,11 +52,10 @@ c     main program.
       double precision tclasspop(nclass), classpop(nclass, nrnodes),
      1     tclasscat(nclass, 53), win(nsample), wr(nclass),
      1     wl(nclass), tgini(mdim),
-     1     bestsplit(nrnodes), bestsplitnext(nrnodes), xrand
-      integer msplit, ntie
-      
-      msplit = 0
-
+     1     bestsplit(nrnodes), bestsplitnext(nrnodes), xrand, 
+     1     entr_node(mdim), entr_tmp(nrnodes * mdim)
+      integer msplit, ntie, m
+      character*255 my_ch
       call zerv(nodestatus,nrnodes)
       call zerv(nodestart,nrnodes)
       call zerv(nodepop,nrnodes)
@@ -82,14 +81,19 @@ c     initialize for next call to findbestsplit
             tclasspop(j) = classpop(j,kbuild)
          end do
          jstat = 0
-
+         call zervr(entr_node, mdim)
          call findbestsplit(a,b,cl,mdim,nsample,nclass,cat,maxcat,
      1        ndstart, ndend,tclasspop,tclasscat,msplit, decsplit,
      1        best,ncase, jstat,mtry,win,wr,wl,mred,mind,
-     1        mevaluation, isRelief,  m_reflp)
+     1        mevaluation, isRelief,  m_reflp, entr_node)
 c         call intpr("jstat", 5, jstat, 1)
 c         call intpr("msplit", 6, msplit, 1)
 c     If the node is terminal, move on.  Otherwise, split.
+         
+         do m = 1, mdim
+            entr_tmp((kbuild-1)*mdim + m) = entr_node(m)
+         end do 
+         
          if (jstat .eq. -1) then
             nodestatus(kbuild) = -1
             goto 30
@@ -202,15 +206,16 @@ c     the coding into an integer of the categories going left.
       subroutine findbestsplit(a, b, cl, mdim, nsample, nclass, cat,
      1     maxcat, ndstart, ndend, tclasspop, tclasscat, msplit,
      2     decsplit, best, ncase, jstat, mtry, win, wr, wl,
-     3     mred, mind, mevaluation, isRelief, m_reflp)
+     3     mred, mind, mevaluation, isRelief, m_reflp, entr_node)
       implicit double precision(a-h,o-z)
       integer a(mdim,nsample), cl(nsample), cat(mdim),
      1     ncase(nsample), b(mdim,nsample), nn, j, i, m_reflp(mdim)
       double precision tclasspop(nclass), tclasscat(nclass,53), dn(53),
      1     win(nsample), wr(nclass), wl(nclass), xrand, 
      1     featw(mtry), nen(ndend - ndstart + 1), w_cum(mdim), 
-     1     m_reflp_n(mdim), a_mdl, bl_mdl, br_mdl, c_mdl,
-     1     dl_mdl, dr_mdl, tmp_mdl, factmp, factmp1, factmp2
+     1     reflp_n(mdim), a_mdl, bl_mdl, br_mdl, c_mdl,
+     1     dl_mdl, dr_mdl, tmp_mdl, factmp, factmp1, factmp2,
+     1     entr_node(mdim)
       integer mind(mred), ncmax, ncsplit,nhit, ntie, ndlen,
      1     l, m, n
       character*255 my_ch
@@ -242,18 +247,17 @@ c     sampling mtry variables w/o replacement.
       do mt = 1, mtry
 
          call rrand(xrand)
-         
+
          if(isRelief .eq. 1) then
-            call zervr(w_cum, mtry)
-            
+            call zervr(reflp_n, mdim)
+            call zervr(w_cum, mdim)
             do i = 1, mdim
-                m_reflp_n(i) = m_reflp(i)
-                m_reflp_n(i) = m_reflp_n(i)/10000
+                reflp_n(i) = m_reflp(i)
+                reflp_n(i) = reflp_n(i)/10000
             end do
-            
-            w_cum(1) = m_reflp_n(1)
+            w_cum(1) = reflp_n(1)
             do i = 2, mdim
-               w_cum(i) = w_cum(i-1) + m_reflp_n(i)
+               w_cum(i) = w_cum(i-1) + reflp_n(i)
             end do
 
             
@@ -301,6 +305,7 @@ c     If nei  her nodes is empty, check the split.
                           critmax = crit
                           msplit = mvar
                           ntie = 1
+                          entr_node(mvar) = exp(-1.0*crit)
                        end if
 c     Break   ties at random:
                        if (crit .eq. critmax) then
@@ -310,6 +315,54 @@ c     Break   ties at random:
                              best = dble(nsp)
                              critmax = crit
                              msplit = mvar
+                             entr_node(mvar) = exp(-1.0*crit)
+                          end if
+                       end if
+                    end if
+                 end if
+              end do
+            end if
+            if(mevaluation .eq. 9) then
+              rrn = pno
+              rrd = pdo
+              rln = 0
+              rld = 0
+              call zervr(wl, nclass)
+              do j = 1, nclass
+                 wr(j) = tclasspop(j)
+              end do
+              ntie = 1
+              do nsp = ndstart, ndend-1
+                 nc = a(mvar, nsp)
+                 u = win(nc)
+                 k = cl(nc)
+                 
+                 rld = rld + u
+                 rrd = rrd - u
+                 wl(k) = wl(k) + u
+                 wr(k) = wr(k) - u
+                 if (b(mvar, nc) .lt. b(mvar, a(mvar, nsp + 1))) then
+c     If nei  her nodes is empty, check the split.
+                    if (dmin1(rrd, rld) .gt. 1.0e-5) then
+                       call calc_ent(rrd, rld, 
+     &                         wr(1), wr(2), wl(1), wl(2),
+     &                         crit)
+                       if (crit .gt. critmax) then
+                          best = dble(nsp)
+                          critmax = crit
+                          msplit = mvar
+                          ntie = 1
+                          entr_node(mvar) = exp(-1.0*crit)
+                       end if
+c     Break   ties at random:
+                       if (crit .eq. critmax) then
+                          ntie = ntie + 1
+                          call rrand(xrand)
+                          if (xrand .lt. 1.0 / ntie) then
+                             best = dble(nsp)
+                             critmax = crit
+                             msplit = mvar
+                             entr_node(mvar) = exp(-1.0*crit)
                           end if
                        end if
                     end if
@@ -355,6 +408,7 @@ c     If neither nodes is empty, check the split.
                             critmax = crit
                             msplit = mvar
                             ntie = 1
+                            entr_node(mvar) = exp(-1.0*crit)
                          end if
 c     Break ties at random:
                          if (crit .eq. critmax) then
@@ -364,6 +418,7 @@ c     Break ties at random:
                                best = dble(nsp)
                                critmax = crit
                                msplit = mvar
+                               entr_node(mvar) = exp(-1.0*crit)
                             end if
                          end if
                       end if
@@ -460,6 +515,7 @@ c     F-score beta = 2
                             msplit = mvar
                             ntie = 1
                          end if
+                         entr_node(mvar) = exp(-1.0*crit)
 c     Break ties at random:
                          if (crit .eq. critmax) then
                             ntie = ntie + 1
@@ -468,6 +524,7 @@ c     Break ties at random:
                                best = dble(nsp)
                                critmax = crit
                                msplit = mvar
+                               entr_node(mvar) = exp(-1.0*crit)
                             end if
                          end if
                       end if
@@ -809,4 +866,68 @@ c      end
       dtmp3 = dtmp3/log(2.0)
       do1 = dtmp1 - dtmp2 + dtmp3
       end
+      
+      subroutine calc_entropy(di1, di2, di3, di4, di5, di6, do1)
+      double precision di1, di2, di3, di4, di5, di6, do1, el, er, e
+      character*255 my_ch
+      e = 0
+      el = 0
+      er = 0
+      
+      e = e + (di5+di3)/(di2+di1)*log((di2+di1)/(di5+di3)) + 
+     &        (di6+di4)/(di2+di1)*log((di2+di1)/(di6+di4))  
+      if ((di3 .eq. di1 .or. di3 .eq. 0) .and. 
+     &    (di5 .eq. di2 .or. di5 .eq. 0)) then
+          er = 0
+          el = 0
+      else if(di3 .eq. di1 .or. di3 .eq. 0) then 
+          er = 0
+          el = el + di5/di2 * log(di2/di5) + 
+     &              di6/di2 * log(di2/di6)
+      else if(di5 .eq. di2 .or. di5 .eq. 0) then
+          el = 0
+          er = er + di3/di1 * log(di1/di3) + 
+     &              di4/di1 * log(di1/di4)
+      else 
+          er = er + di3/di1 * log(di1/di3) + 
+     &              di4/di1 * log(di1/di4)
+          el = el + di5/di2 * log(di2/di5) + 
+     &              di6/di2 * log(di2/di6)
+      end if 
+      do1 = exp(-1.0*(el+er))
+      end
+      
+      
+c     Same function than the one above, just with a different return
+      subroutine calc_ent(di1, di2, di3, di4, di5, di6, do1)
+      double precision di1, di2, di3, di4, di5, di6, do1, el, er, e
+      character*255 my_ch
+      e = 0
+      el = 0
+      er = 0
+      
+      e = e + (di5+di3)/(di2+di1)*log((di2+di1)/(di5+di3)) + 
+     &        (di6+di4)/(di2+di1)*log((di2+di1)/(di6+di4))  
+      if ((di3 .eq. di1 .or. di3 .eq. 0) .and. 
+     &    (di5 .eq. di2 .or. di5 .eq. 0)) then
+          er = 0
+          el = 0
+      else if(di3 .eq. di1 .or. di3 .eq. 0) then 
+          er = 0
+          el = el + di5/di2 * log(di2/di5) + 
+     &              di6/di2 * log(di2/di6)
+      else if(di5 .eq. di2 .or. di5 .eq. 0) then
+          el = 0
+          er = er + di3/di1 * log(di1/di3) + 
+     &              di4/di1 * log(di1/di4)
+      else 
+          er = er + di3/di1 * log(di1/di3) + 
+     &              di4/di1 * log(di1/di4)
+          el = el + di5/di2 * log(di2/di5) + 
+     &              di6/di2 * log(di2/di6)
+      end if 
+      do1 = el + er - e
+      end
+      
+      
       

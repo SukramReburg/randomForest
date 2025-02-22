@@ -40,7 +40,8 @@ void classForest(int *mdim, int *ntest, int *nclass, int *maxcat,
                  double *pid, double *cutoff, double *countts, int *treemap,
                  int *nodestatus, int *cat, int *nodeclass, int *jts,
                  int *jet, int *bestvar, int *nodexts, int *ndbigtree,
-                 int *keepPred, int *prox, double *proxmatrix, int *nodes);
+                 int *keepPred, int *prox, double *proxmatrix, int *nodes, 
+                 double *weight_voting);
 
 void regTree(double *x, double *y, int mdim, int nsample,
 	     int *lDaughter, int *rDaughter, double *upper, double *avnode,
@@ -105,7 +106,7 @@ extern void F77_NAME(buildtree)(int *a, int *b, int *cl, int *cat,
 				int *ta, int *nrnodes, int *,
 				int *, int *, int *, int *, int *, int *,
 				double *, double *, double *,
-				int *, int *, int *, int *mevaluation, int *w_refl, int *isRelief);
+				int *, int *, int *, int *mevaluation, int *w_refl, int *isRelief, double *entr_tmp);
 
 /* maximum number of categories allowed in categorical predictors */
 #define MAX_CAT 53

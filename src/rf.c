@@ -46,7 +46,8 @@ void classRF(double *x, int *dimx, int *cl, int *ncl, int *cat, int *maxcat,
              int *ndbigtree, int *nodestatus, int *bestvar, int *treemap,
              int *nodeclass, double *xbestsplit, double *errtr,
              int *testdat, double *xts, int *clts, int *nts, double *countts,
-             int *outclts, int *labelts, int *attrEval, int *num_attrEval,  int *isRelief,
+             int *outclts, int *labelts, int *attrEval, int *num_attrEval, double *Relief,
+             double *entropyweights, double *w_refl,
              double *proxts, double *errts,
              int *inbag) {
   /******************************************************************
@@ -87,7 +88,6 @@ void classRF(double *x, int *dimx, int *cl, int *ncl, int *cat, int *maxcat,
    *  impmat:   matrix of local variable importance measures
    *  prox:     matrix of proximity (if iprox=1)
    ******************************************************************/
-
   int nsample0, mdim, nclass, addClass, mtry, ntest, nsample, ndsize,
   mimp, nimp, near, nuse, noutall, nrightall, nrightimpall,
   keepInbag, nstrata, nsample1, nsample2, 
@@ -107,7 +107,7 @@ void classRF(double *x, int *dimx, int *cl, int *ncl, int *cat, int *maxcat,
   double av=0.0, delta=0.0;
 
   double *tgini, *tx, *wl, *classpop, *tclasscat, *tclasspop, *win,
-  *tp, *wr, *bestsplitnext, *bestsplit, *maxdiff, *w_refl;
+  *tp, *wr, *bestsplitnext, *bestsplit, *maxdiff, *entr_tmp;
 
   addClass = Options[0];
   imp      = Options[1];
@@ -145,8 +145,9 @@ void classRF(double *x, int *dimx, int *cl, int *ncl, int *cat, int *maxcat,
   bestsplitnext = (double *) S_alloc(*nrnodes, sizeof(double));
   bestsplit =     (double *) S_alloc(*nrnodes, sizeof(double));
   maxdiff =       (double *) S_alloc(mdim, sizeof(double));
-  w_refl =             (double *) S_alloc(mdim, sizeof(double));
-
+  // w_refl =             (double *) S_alloc(mdim, sizeof(double));
+  entr_tmp =      (double *) S_alloc(*nrnodes * mdim, sizeof(double));
+  
   out =           (int *) S_alloc(nsample, sizeof(int));
   // attrEvalvec =   (int *) S_alloc(Ntree, sizeof(int));
   nodepop =       (int *) S_alloc(*nrnodes, sizeof(int));
@@ -211,6 +212,8 @@ void classRF(double *x, int *dimx, int *cl, int *ncl, int *cat, int *maxcat,
   } else {
     nind = replace ? NULL : (int *) S_alloc(nsample, sizeof(int));
   }
+  
+  zeroDouble(entropyweights, Ntree * mdim);
 
   /*    INITIALIZE FOR RUN */
   if (*testdat) zeroDouble(countts, ntest * nclass);
@@ -252,12 +255,13 @@ void classRF(double *x, int *dimx, int *cl, int *ncl, int *cat, int *maxcat,
     }
     Rprintf("\n");
   }
-  if (nclass == 2 && *isRelief == 1){
+  int *isRelief = (int *)malloc(sizeof(int));
+  if (nclass == 2 && *Relief > 0) {
+    *isRelief = 1;
     zeroInt(neighbors1, nsample * 10);
     zeroInt(neighbors2, nsample * 10);
     
-    findNeighbors(x, cl, neighbors1, neighbors2, 
-                  mdim, nsample);
+    findNeighbors(x, cl, neighbors1, neighbors2, mdim, nsample);
     
     srand(time(NULL));
     int nsim = 10000;
@@ -267,64 +271,80 @@ void classRF(double *x, int *dimx, int *cl, int *ncl, int *cat, int *maxcat,
     zeroInt(m_reflp, mdim);
     calculateMaxdiff(x, maxdiff, mdim, nsample);
     
-    for(int i = 0; i < nsim; i++){
-      obs_idx = rand() % nsample;
-      mis_idx = rand() % 10;
-      hit_idx = rand() % 10;
+    for(int i = 0; i < nsim; i++) {
+      int obs_idx = rand() % nsample;
+      int mis_idx = rand() % 10;
+      int hit_idx = rand() % 10;
       
-      if (cl[obs_idx] == 1){ 
-          near_hit = neighbors1[obs_idx*10 + hit_idx];
-          near_mis = neighbors2[obs_idx*10 + mis_idx];
+      int near_hit, near_mis;
+      if (cl[obs_idx] == 1) { 
+        near_hit = neighbors1[obs_idx * 10 + hit_idx];
+        near_mis = neighbors2[obs_idx * 10 + mis_idx];
       } else {
-          near_hit = neighbors2[obs_idx*10 + hit_idx];
-          near_mis = neighbors1[obs_idx*10 + mis_idx];
+        near_hit = neighbors2[obs_idx * 10 + hit_idx];
+        near_mis = neighbors1[obs_idx * 10 + mis_idx];
       }
       
-      for(int k = 0; k < mdim; k++){
+      for(int k = 0; k < mdim; k++) {
         double diff_hit = x[k + mdim * obs_idx] - x[k + mdim * near_hit];
-        diff_hit = diff_hit * diff_hit;
-        diff_hit = diff_hit / maxdiff[k];
+        diff_hit = (diff_hit * diff_hit) / maxdiff[k];
         
         double diff_mis = x[k + mdim * obs_idx] - x[k + mdim * near_mis];
-        diff_mis = diff_mis * diff_mis;
-        diff_mis = diff_mis / maxdiff[k];
+        diff_mis = (diff_mis * diff_mis) / maxdiff[k];
         
         w_refl[k] = w_refl[k] - diff_hit + diff_mis;
       }
     }
-
-    for(int k = 0; k < mdim; k++){
-      w_refl[k] = w_refl[k]/nsim;
+    
+    for(int k = 0; k < mdim; k++) {
+      if (isnan(w_refl[k])) {
+        w_refl[k] = 0;
+      }
+      w_refl[k] = w_refl[k] / nsim;
     }
-
+    
     double min_value = w_refl[0];
+    double max_value = w_refl[0];
     for (int k = 1; k < mdim; k++) {
       if (w_refl[k] < min_value) {
         min_value = w_refl[k];
       }
-    }
-    if (min_value < 0) {
-      for (int k = 0; k < mdim; k++) {
-        w_refl[k] += fabs(min_value);  // Add the absolute value of the smallest value
+      if (w_refl[k] > max_value) {
+        max_value = w_refl[k];
       }
     }
     
-    // Step 2: Normalize the values to obtain probabilities
-    double sum_values = 0;
+    // Normalize to the range 0 to 1
     for (int k = 0; k < mdim; k++) {
-      sum_values += w_refl[k];
+      w_refl[k] = (w_refl[k] - min_value) / (max_value - min_value);
     }
+    if(*Relief > 0){
+      // Apply the alpha transformation
+      for (int k = 0; k < mdim; k++) {
+        w_refl[k] = pow(w_refl[k], *Relief);
+      }
+    }
+    // Normalize to make the sum equal to one
+    double sum_w_refl = 0.0;
     for (int k = 0; k < mdim; k++) {
-      w_refl[k] = round((w_refl[k]/sum_values) * 10000);
+      sum_w_refl += w_refl[k];
     }
-
+    
+    if (sum_w_refl != 0) {
+      for (int k = 0; k < mdim; k++) {
+        w_refl[k] = w_refl[k] / sum_w_refl;
+      }
+    }
+    
+    // Optionally scale to integers if needed (0 to 10,000)
     for (int k = 0; k < mdim; k++) {
-      m_reflp[k] = (int)w_refl[k];
+      m_reflp[k] = (int)round(w_refl[k] * 10000);
     }
-  }else{
+    
+  } else {
     zeroInt(m_reflp, mdim);
   }
-  
+   
   idxByNnode = 0;
   idxByNsample = 0;
   for (jb = 0; jb < Ntree; jb++) {
@@ -405,9 +425,10 @@ void classRF(double *x, int *dimx, int *cl, int *ncl, int *cat, int *maxcat,
       /* Copy the original a matrix back. */
       memcpy(a, at, sizeof(int) * mdim * nsample);
       modA(a, &nuse, nsample, mdim, cat, *maxcat, ncase, jin);
-      // Rprintf("Relief is %d\n", *isRelief);
       mevaluation = attrEval[jb % lae];
 
+      zeroDouble(entr_tmp, *nrnodes * mdim);
+      
       F77_CALL(buildtree)(a, b, cl, cat, maxcat, &mdim, &nsample,
                &nclass,
                treemap + 2*idxByNnode, bestvar + idxByNnode,
@@ -417,7 +438,20 @@ void classRF(double *x, int *dimx, int *cl, int *ncl, int *cat, int *maxcat,
                ta, nrnodes, idmove, &ndsize, ncase,
                &mtry, varUsed, nodeclass + idxByNnode,
                ndbigtree + jb, win, wr, wl, &mdim,
-               &nuse, mind, &mevaluation, m_reflp, isRelief);
+               &nuse, mind, &mevaluation, m_reflp, isRelief, entr_tmp);
+      Rprintf("Building process of tree %d", jb, "finished.  \n");
+      for(int m = 0; m < mdim; m ++){
+        double sum_tmp = 0;
+        int cou_tmp = 0;
+        for(int nr = 0; nr < *nrnodes; nr ++){
+          if (entr_tmp[nr*mdim + m] > 0.000000000001){
+            sum_tmp += entr_tmp[nr*mdim + m];
+            cou_tmp += 1;
+          }
+        }
+        sum_tmp = sum_tmp/cou_tmp;
+        entropyweights[jb*mdim + m] = sum_tmp;
+      }
       /* if the "tree" has only the root node, start over */
     } while (ndbigtree[jb] == 1);
     Xtranslate(x, mdim, *nrnodes, nsample, bestvar + idxByNnode,
@@ -625,16 +659,18 @@ void classForest(int *mdim, int *ntest, int *nclass, int *maxcat,
                  double *pid, double *cutoff, double *countts, int *treemap,
                  int *nodestatus, int *cat, int *nodeclass, int *jts,
                  int *jet, int *bestvar, int *node, int *treeSize,
-                 int *keepPred, int *prox, double *proxMat, int *nodes) {
+                 int *keepPred, int *prox, double *proxMat, int *nodes, 
+                 double *weight_voting) {
   int j, n, n1, n2, idxNodes, offset1, offset2, *junk, ntie;
   double crit, cmax;
+  
 
   zeroDouble(countts, *nclass * *ntest);
   idxNodes = 0;
   offset1 = 0;
   offset2 = 0;
   junk = NULL;
-
+  
   for (j = 0; j < *ntree; ++j) {
     /* predict by the j-th tree */
     predictClassTree(x, *ntest, *mdim, treemap + 2*idxNodes,
@@ -644,7 +680,7 @@ void classForest(int *mdim, int *ntest, int *nclass, int *maxcat,
                      jts + offset1, node + offset2, *maxcat);
     /* accumulate votes: */
     for (n = 0; n < *ntest; ++n) {
-      countts[jts[n + offset1] - 1 + n * *nclass] += 1.0;
+      countts[jts[n + offset1] - 1 + n * *nclass] += weight_voting[j];
     }
 
     /* if desired, do proximities for this round */
