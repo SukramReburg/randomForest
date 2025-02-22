@@ -2,7 +2,9 @@ useDynLib(randomForest, .registration=TRUE)
 
 export(combine, getTree, grow, importance, margin, MDSplot, na.roughfix,
        partialPlot, randomForest, rfImpute, treesize, tuneRF,
-       varImpPlot, varUsed, rfNews, outlier, classCenter, rfcv)
+       varImpPlot, varUsed, rfNews, outlier, classCenter, rfcv, 
+       find_numberofTrees, addTrees, optnumTree_alg, combineDS,
+       traverse_tree, predict_single_tree, normalize, weighted_voting)
 
 S3method(print, randomForest)
 S3method(predict, randomForest)
@@ -30,4 +32,9 @@ importFrom("graphics", "axis", "barplot", "dotchart", "lines",
 importFrom("stats", "delete.response", "mad", "median", "model.frame",
            "model.response", "na.fail", "na.omit", "napredict",
            "predict", "quantile", "reformulate", "terms", "update",
-           "var", "weighted.mean")
+           "var", "weighted.mean", "setNames")
+importFrom("pbapply", "pblapply")
+importFrom("parallel", "detectCores", "makeCluster", "clusterExport", "stopCluster")
+importFrom("stats", "as.formula", "rf", "sd")
+importFrom("utils", "setTxtProgressBar", "txtProgressBar")
+importFrom("data.table", "data.table", "setDT", "as.data.table", "setnames", ":=", ".SD", ".N")

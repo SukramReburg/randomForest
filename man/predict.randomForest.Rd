@@ -7,7 +7,7 @@
 \usage{
 \method{predict}{randomForest}(object, newdata, type="response",
   norm.votes=TRUE, predict.all=FALSE, proximity=FALSE, nodes=FALSE,
-  cutoff, ...)
+  cutoff, weight_voting,  ...)
 }
 \arguments{
   \item{object}{an object of class \code{randomForest}, as that
@@ -33,6 +33,7 @@
     Default is taken from the \code{forest$cutoff} component of
     \code{object} (i.e., the setting used when running
     \code{\link{randomForest}}).}
+  \item{weight_voting}{Adjusts how much weight a tree is assinged in the prediction ofrest based on         some Metric}
   \item{...}{not used currently.}
 }
 

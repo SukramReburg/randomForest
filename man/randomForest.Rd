@@ -25,7 +25,8 @@
              proximity, oob.prox=proximity,
              norm.votes=TRUE, do.trace=FALSE,
              keep.forest=!is.null(y) && is.null(xtest), corr.bias=FALSE,
-             keep.inbag=FALSE, ...)
+             keep.inbag=FALSE, attrEval = as.integer(1), Relief = as.double(0), 
+             isSizeopt = FALSE, ...)
 \method{print}{randomForest}(x, ...)
 }
 \arguments{
@@ -103,6 +104,12 @@
   \item{keep.inbag}{Should an \code{n} by \code{ntree} matrix be
     returned that keeps track of which samples are ``in-bag'' in which
     trees (but not how many times, if sampling with replacement)}
+  \item{attrEval}{Selects the metric for determining the bestsplit (point and 
+  variable) in the tree building process. Currently implemented are Gini, 
+  MDL, PRecision, Accuracy, Recall, F-Score, Specificity.}
+  \item{Relief}{Is the Relief Algorithm used for variable selection purpose. If 0 no Relief is applied. If between 0 and 1, thats the factor alpha of the power transformation applied to the probabilities of selecting variables coming from Relief algorithm.}
+  \item{isSizeopt}{If the optimalNumberofTrees Algorithm is uses, this arugment 
+  tells R to return the needed inputs.}
   \item{...}{optional parameters to be passed to the low level function
     \code{randomForest.default}.}
 }
